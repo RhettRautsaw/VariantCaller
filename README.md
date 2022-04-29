@@ -12,6 +12,7 @@ TCCTGCTCTCCTCCTGCTATATTGAAGC----------ACAGGATGAACTGTATACCCGCCCTTTTCCGG
 ```
 
 ## Rhett M. Rautsaw
+[![](https://img.shields.io/badge/License-GNU%20GPLv3.0-blue)](https://choosealicense.com/licenses/gpl-3.0/)
 
 **VariantCaller** is a wrapper for the 2022 *gatk* & *bcftools* best practices + phasing with *WhatsHap*.
 

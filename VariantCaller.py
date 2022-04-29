@@ -267,6 +267,11 @@ def bcfCall(tmpref, tmpregions, tmpbam, tmpploid, outpre, outpre2, tmpcpus):
 ## Filter Variants -- bcftools
 def bcfFilter(tmpvar, outpre):
 	print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+ " ::: bcftools view (filter) :::")
+	### TO ADD:::
+	### Calculate mean depth
+	### bcftools query -f '%DP\n' 10_combo-phase.vcf.gz | datamash mean 1
+	### bcftools view -e "DP < 5 && DP > 35" 10_combo-phase.vcf.gz -Oz -o 10_combo-phase_DP5-35.vcf.gz
+	### Add depth to the expressions below
 	snp_exp = 'QUAL <= 10 || MQBZ < -(3.5+4*DP/QUAL) || RPBZ > (3+3*DP/QUAL) || RPBZ < -(3+3*DP/QUAL) || FORMAT/SP > (40+DP/2) || SCBZ > (2.5+DP/30)'
 	indel_exp = 'IDV < 2 || IMF < 0.1 || MQBZ < -(5+DP/20) || RPBZ+SCBZ > 9'
 	sp.call("bcftools view -e \"(TYPE=\'SNP\' && " + snp_exp + ") || (TYPE=\'INDEL\' && " + indel_exp + ")\" " + tmpvar + " -Ov -o " + outpre + "_combo-pass.vcf", shell=True)
@@ -407,14 +412,6 @@ if not os.path.isfile("01_markdups.bam"):
 	sp.call("samtools markdup -@ " + str(cpus) + " -m s 01_sort.bam 01_markdups.bam", shell=True, stdout=logfile, stderr=logfile)
 	print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: samtools index :::")
 	sp.call("samtools index -@ " + str(cpus) + " 01_markdups.bam", shell=True, stdout=logfile, stderr=logfile)
-#if not os.path.isfile("01_markdups.bam"):
-	#print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: gatk SortSam :::")
-	#sp.call("gatk SortSam -I 00_aln.sam -O 01_markdups.bam -M 01_markdups.txt", shell=True, stdout=logfile, stderr=logfile)
-	#print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: gatk MarkDuplicates :::")
-	#sp.call("gatk MarkDuplicates -I 00_aln.sam -O 01_markdups.bam -M 01_markdups.txt", shell=True, stdout=logfile, stderr=logfile)
-	#### SPARK FAILS...ALTERNATE GATK ABOVE.
-	#print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: gatk MarkDuplicatesSpark :::")
-	#sp.call("gatk MarkDuplicatesSpark -I 00_aln.sam -O 01_markdups.bam", shell=True, stdout=logfile, stderr=logfile)
 
 # Recalibrate Mapped Reads if Possible
 if not os.path.isfile("02_recal.bam"):
@@ -441,6 +438,7 @@ if(mode == "DNA"):
 			sp.call("cp 02_recal.bam 06_recal.bam", shell=True, stdout=logfile, stderr=logfile)
 			sp.call("samtools index -@ " + str(cpus) + " 06_recal.bam", shell=True, stdout=logfile, stderr=logfile)
 		else:
+			# If there are known sites, then you have already done base recalibration above and you can just do a CNN or Hard Filter here. Otherwise "bootstraps" will be done.
 			if(known_sites!=None and args.cnn):
 				CNNFilter("04_genotypes.vcf", reference, known_sites, "09", str(0))
 			elif(known_sites!=None):
@@ -455,11 +453,8 @@ if(mode == "DNA"):
 					# Base Recalibration
 					gatkBaseRecal(reference, "02_recal.bam", "06", "05_combo-pass_" + prev + ".vcf")
 					# Re-call Genotypes
-					if(args.mpileup):
-						bcfCall(reference, "00_ref.bed", "06_recal.bam", str(ploidy), "07","08", str(cpus))
-					else:
-						gatkCall(reference, "06_recal.bam", str(ploidy), "07", "08", str(cpus))
-						#gatkCallp(reference, "00_ref.bed", "02_recal.bam", str(ploidy), "03", "04", str(cpus2))
+					gatkCall(reference, "06_recal.bam", str(ploidy), "07", "08", str(cpus))
+					#gatkCallp(reference, "00_ref.bed", "02_recal.bam", str(ploidy), "03", "04", str(cpus2))
 					# Variant Filtering
 					if(iter==boots): # If on the final bootstrap, apply final filter
 						if(args.bootcnn):
@@ -474,6 +469,7 @@ if(mode == "DNA"):
 
 ################# RNA #################
 if(mode == "RNA"):
+	# NEED TO FINISH THIS
 	#if(args.rna2genome):
 	#	sp.call("gatk SplitNCigarReads", shell=True)#, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
 	print("\n"+dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: RNAseq Short Variant Discovery (SNPs + Indels) :::")
@@ -500,8 +496,8 @@ if(mode == "RNA"):
 				# Base Recalibration
 				gatkBaseRecal(reference, "02_recal.bam", "06", "05_combo-pass_" + prev + ".vcf")
 				# Re-call Genotypes
-				#gatkCallp(reference, "00_ref.bed", "02_recal.bam", str(ploidy), "03", "04", str(cpus2))
 				gatkCall(reference, "06_recal.bam", str(ploidy), "07", "08", str(cpus))
+				#gatkCallp(reference, "00_ref.bed", "02_recal.bam", str(ploidy), "03", "04", str(cpus2))
 				# Variant Filtering
 				if(iter==boots): # If on the final bootstrap, apply final filter
 					HardFilter("08_genotypes.vcf", "09")
@@ -556,15 +552,6 @@ if(args.nophase):
 			sp.call("tabix 09_combo-pass.vcf.gz", shell=True, stdout=logfile, stderr=logfile)
 		
 		phase(reference, "00_ref.bed", "09_combo-pass.vcf.gz", "06_recal.bam", ploidy, "10", str(cpus))
-		#if(ploidy == 2):
-		#	sp.call("whatshap phase -o 10_combo-phase.vcf --indels --reference " + reference + " 09_combo-pass.vcf 06_recal.bam", shell=True, stdout=logfile, stderr=logfile)
-		#elif(ploidy > 2):
-		#	sp.call("whatshap polyphase --ploidy " + str(ploidy) + " -o 10_combo-phase.vcf --indels --reference " + reference + " 09_combo-pass.vcf 06_recal.bam", shell=True, stdout=logfile, stderr=logfile)
-		#elif(ploidy == 1):
-		#	print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: Cannot phase haploid. Skipping to haplotyping ::: ")
-		#	sp.call("cp 09_combo-pass.vcf 10_combo-phase.vcf", shell=True, stdout=logfile, stderr=logfile)
-		#sp.call("gatk IndexFeatureFile -I 10_combo-phase.vcf", shell=True, stdout=logfile, stderr=logfile)
-		
 		sp.call("bgzip -@ " + str(cpus) + " 10_combo-phase.vcf", shell=True, stdout=logfile, stderr=logfile)
 		sp.call("tabix 10_combo-phase.vcf.gz", shell=True, stdout=logfile, stderr=logfile)
 		sp.call("gatk SelectVariants -V 10_combo-phase.vcf.gz -select-type SNP -O 10_snp-phase.vcf", shell=True, stdout=logfile, stderr=logfile)
@@ -584,6 +571,22 @@ if(args.nophase):
 			sp.call("perl -pi -e 's/>(.*)$/>$1\|h1/g' 11_haplo*1.fasta", shell=True, stdout=logfile, stderr=logfile)
 			sp.call("perl -pi -e 's/>(.*)$/>$1\|h2/g' 11_haplo*2.fasta", shell=True, stdout=logfile, stderr=logfile)
 
+print("\n"+dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: FINISHED! :::")
+
+
+
+#################### ARCHIVED CODE ######################
+
+################# GATK MARK DUPLICATES ##################
+#if not os.path.isfile("01_markdups.bam"):
+	#print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: gatk SortSam :::")
+	#sp.call("gatk SortSam -I 00_aln.sam -O 01_markdups.bam -M 01_markdups.txt", shell=True, stdout=logfile, stderr=logfile)
+	#print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: gatk MarkDuplicates :::")
+	#sp.call("gatk MarkDuplicates -I 00_aln.sam -O 01_markdups.bam -M 01_markdups.txt", shell=True, stdout=logfile, stderr=logfile)
+	#### SPARK FAILS...ALTERNATE GATK ABOVE.
+	#print(dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: gatk MarkDuplicatesSpark :::")
+	#sp.call("gatk MarkDuplicatesSpark -I 00_aln.sam -O 01_markdups.bam", shell=True, stdout=logfile, stderr=logfile)
+
 ################# CLEANUP & NAME FINAL OUTPUT FILES #################
 #print("\n"+dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: Cleaning Up :::")
 #sp.call("mv 06_recal.bam " + samplename + "_reads.bam", shell=True, stdout=logfile, stderr=logfile)
@@ -600,5 +603,3 @@ if(args.nophase):
 #
 #sp.call("rm 0{0..9}* 10_* 11_*", shell=True, stdout=logfile, stderr=logfile)
 #sp.call("gzip *.fasta *.vcf", shell=True, stdout=logfile, stderr=logfile)
-
-print("\n"+dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")+" ::: FINISHED! :::")
